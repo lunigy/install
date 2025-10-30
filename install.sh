@@ -8,8 +8,6 @@
 # Usage: curl -sSL https://lunigy.ai/install.sh | bash
 #        OR: bash install.sh [options]
 #
-# Last tested: 2025-10-30 (automated sync workflow validated)
-#
 # Options:
 #   --config <minimal|full>  Configuration type (default: full)
 #   --repo-url <url>         Repository URL (required)
