@@ -607,6 +607,34 @@ create_symlinks() {
     done
 
     success "All symlinks created"
+create_claude_md() {
+    step "Creating CLAUDE.md"
+
+    # Check if CLAUDE.md already exists
+    if [ -f "CLAUDE.md" ]; then
+        info "CLAUDE.md already exists, skipping..."
+        return 0
+    fi
+
+    # Copy template from autonomous system
+    local template_path=".autonomous-system/templates/CLAUDE.md.template"
+    
+    if [ ! -f "$template_path" ]; then
+        warning "Template not found at $template_path"
+        info "You can create CLAUDE.md manually later"
+        return 0
+    fi
+
+    if [ "$DRY_RUN" = true ]; then
+        info "[DRY RUN] Would copy CLAUDE.md template to project root"
+    else
+        cp "$template_path" "CLAUDE.md"
+        CHANGES_MADE+=("created_claude_md")
+        success "Created CLAUDE.md from template"
+        info "  Edit CLAUDE.md to customize for your project"
+    fi
+}
+
 }
 
 verify_installation() {
@@ -695,6 +723,10 @@ cleanup_on_failure() {
                 local link="${change#created_symlink:}"
                 info "Removing symlink: $link..."
                 rm -f "$link" 2>/dev/null || true
+            ;;
+created_claude_md)
+            info "Removing CLAUDE.md..."
+            rm -f CLAUDE.md 2>/dev/null || true
                 ;;
         esac
     done
@@ -722,6 +754,7 @@ show_summary() {
     echo "  ✅ settings.json configuration"
     echo "  ✅ Hook symlinks ($([ "$CONFIG_TYPE" = "minimal" ] && echo "3" || echo "6") hooks)"
     echo "  ✅ Output style symlinks (3 styles)"
+    echo "  ✅ CLAUDE.md (project configuration)"
 
     echo -e "\n${BOLD}Next Steps:${NC}"
     echo "  1. Open Claude Code in this directory"
@@ -810,6 +843,7 @@ main() {
     create_directories
     create_settings_json
     create_symlinks
+    create_claude_md
 
     if [ "$DRY_RUN" = false ]; then
         verify_installation
