@@ -42,6 +42,9 @@ REPO_URL=""
 BRANCH_NAME="main"
 SKIP_PROMPTS=false
 DRY_RUN=false
+INSTALL_RAG=true           # Install RAG dependencies
+SETUP_RAG_HOOKS=false      # Install RAG git hooks
+RUN_RAG_INDEX=false        # Run initial RAG indexing
 
 # State tracking
 BACKUP_DIR=""
@@ -95,6 +98,9 @@ OPTIONS:
     --branch <name>         Branch name (default: main)
     --skip-prompts          Use defaults without prompting
     --dry-run               Show what would be done without doing it
+    --skip-rag              Skip RAG system installation (not recommended)
+    --rag-hooks             Install RAG auto-indexing git hooks
+    --rag-index             Run initial RAG index after installation
     --help                  Show this help message
 
 EXAMPLES:
@@ -157,6 +163,14 @@ check_prerequisites() {
         else
             success "Python $python_version found"
         fi
+    fi
+
+    # Check pip
+    if ! command -v pip3 &> /dev/null; then
+        warning "pip3 not found - RAG dependencies will need manual installation"
+        warning "Install with: python3 -m ensurepip --upgrade"
+    else
+        success "pip3 found"
     fi
 
     # Check Git
@@ -703,6 +717,101 @@ verify_installation() {
 }
 
 ################################################################################
+# RAG System Setup
+################################################################################
+
+install_rag_dependencies() {
+    if [ "$INSTALL_RAG" = false ]; then
+        info "Skipping RAG dependencies (--skip-rag specified)"
+        return 0
+    fi
+
+    step "Installing RAG System Dependencies"
+
+    if [ "$DRY_RUN" = true ]; then
+        info "[DRY RUN] Would install: sentence-transformers, faiss-cpu, numpy"
+        return 0
+    fi
+
+    # Check if requirements.txt exists
+    local req_file=".autonomous-system/orchestration/requirements.txt"
+    if [ ! -f "$req_file" ]; then
+        warning "Requirements file not found: $req_file"
+        warning "RAG dependencies will need manual installation"
+        return 0
+    fi
+
+    info "Installing Python dependencies (this may take 2-3 minutes)..."
+
+    # Install in user space to avoid permission issues
+    if python3 -m pip install --user -r "$req_file" --quiet; then
+        success "RAG dependencies installed successfully"
+        CHANGES_MADE+=("installed_rag_deps")
+    else
+        warning "Failed to install RAG dependencies automatically"
+        warning "Install manually: pip install -r $req_file"
+    fi
+}
+
+setup_rag_hooks() {
+    if [ "$SETUP_RAG_HOOKS" = false ]; then
+        info "Skipping RAG git hooks (use --rag-hooks to enable)"
+        return 0
+    fi
+
+    step "Setting Up RAG Auto-Indexing Git Hooks"
+
+    if [ "$DRY_RUN" = true ]; then
+        info "[DRY RUN] Would install RAG git hooks"
+        return 0
+    fi
+
+    local hook_installer=".autonomous-system/scripts/install-rag-hooks.sh"
+    if [ ! -f "$hook_installer" ]; then
+        warning "RAG hook installer not found: $hook_installer"
+        return 0
+    fi
+
+    if bash "$hook_installer"; then
+        success "RAG git hooks installed"
+        CHANGES_MADE+=("installed_rag_hooks")
+    else
+        warning "Failed to install RAG git hooks"
+        warning "Install manually: bash $hook_installer"
+    fi
+}
+
+run_initial_rag_index() {
+    if [ "$RUN_RAG_INDEX" = false ]; then
+        info "Skipping initial RAG indexing (use --rag-index to enable)"
+        return 0
+    fi
+
+    step "Running Initial RAG Index"
+
+    if [ "$DRY_RUN" = true ]; then
+        info "[DRY RUN] Would run initial RAG indexing"
+        return 0
+    fi
+
+    local rag_cli=".autonomous-system/scripts/rag-cli.py"
+    if [ ! -f "$rag_cli" ]; then
+        warning "RAG CLI not found: $rag_cli"
+        return 0
+    fi
+
+    info "Indexing codebase (this may take 2-5 minutes for first run)..."
+
+    if python3 "$rag_cli" index; then
+        success "RAG index created successfully"
+        CHANGES_MADE+=("created_rag_index")
+    else
+        warning "Failed to create RAG index"
+        warning "Run manually: python3 $rag_cli index"
+    fi
+}
+
+################################################################################
 # Cleanup and Rollback
 ################################################################################
 
@@ -739,6 +848,18 @@ cleanup_on_failure() {
                 info "Removing symlink: $link..."
                 rm -f "$link" 2>/dev/null || true
                 ;;
+            installed_rag_deps)
+                info "RAG dependencies were installed but may need manual cleanup"
+                ;;
+            installed_rag_hooks)
+                info "Removing RAG git hooks..."
+                rm -f .git/hooks/post-commit 2>/dev/null || true
+                rm -f .git/hooks/pre-push 2>/dev/null || true
+                ;;
+            created_rag_index)
+                info "Removing RAG index..."
+                rm -rf .autonomous-system/.rag-cache 2>/dev/null || true
+                ;;
         esac
     done
 
@@ -767,9 +888,34 @@ show_summary() {
     echo "  ✅ Subagents (3 modes: Discovery, Engineering, Launch)"
     echo "  ✅ Subagent slash commands"
 
+    # Add RAG status
+    if [ "$INSTALL_RAG" = true ]; then
+        echo "  ✅ RAG system dependencies"
+    fi
+    if [ "$SETUP_RAG_HOOKS" = true ]; then
+        echo "  ✅ RAG auto-indexing git hooks"
+    fi
+    if [ "$RUN_RAG_INDEX" = true ]; then
+        echo "  ✅ RAG codebase index"
+    fi
+
     echo -e "\n${BOLD}Next Steps:${NC}"
     echo "  1. Open Claude Code in this directory"
-    echo "  2. Test the regulatory validator:"
+
+    # If RAG was installed, add RAG-specific instructions
+    if [ "$INSTALL_RAG" = true ]; then
+        echo "  2. Enable RAG automatic context loading:"
+        echo "     Add to .claude/settings.json PreToolUse hook:"
+        echo "     ${BLUE}\$CLAUDE_PROJECT_DIR/.autonomous-system/hooks/pre-tool-use-rag-context.py${NC}"
+        echo ""
+        if [ "$RUN_RAG_INDEX" = false ]; then
+            echo "  3. Index your codebase (first time):"
+            echo "     ${BLUE}python3 .autonomous-system/scripts/rag-cli.py index${NC}"
+            echo ""
+        fi
+    fi
+
+    echo "  4. Test the regulatory validator:"
     echo "     ${BLUE}Say: \"Let's build a medical credentialing platform\"${NC}"
     echo "     ${GREEN}Expected: 🚨 CRITICAL REGULATORY ALERT${NC}"
     echo ""
@@ -827,6 +973,18 @@ main() {
                 DRY_RUN=true
                 shift
                 ;;
+            --skip-rag)
+                INSTALL_RAG=false
+                shift
+                ;;
+            --rag-hooks)
+                SETUP_RAG_HOOKS=true
+                shift
+                ;;
+            --rag-index)
+                RUN_RAG_INDEX=true
+                shift
+                ;;
             --help)
                 show_help
                 ;;
@@ -854,6 +1012,9 @@ main() {
     create_directories
     create_settings_json
     create_symlinks
+    install_rag_dependencies
+    setup_rag_hooks
+    run_initial_rag_index
 
     if [ "$DRY_RUN" = false ]; then
         verify_installation
