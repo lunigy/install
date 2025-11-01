@@ -356,7 +356,7 @@ create_directories() {
     local dirs=(
         ".claude"
         ".claude/hooks"
-        ".claude/output-styles"
+        ".claude/subagents"
         ".claude/commands"
         ".claude/agents"
         ".claude/skills"
@@ -573,40 +573,77 @@ create_symlinks() {
         fi
     done
 
-    # Output styles symlinks
-    local styles=(
+    # Subagent files (direct copies, no symlinks needed)
+    local subagents=(
         "discovery-mode.md"
         "engineering-mode.md"
         "launch-mode.md"
     )
 
-    info "Creating output style symlinks..."
-    for style in "${styles[@]}"; do
-        local target="$base_path/output-styles/$style"
-        local link=".claude/output-styles/$style"
+    info "Creating subagent files..."
+    for subagent in "${subagents[@]}"; do
+        local source="$base_path/../.claude/subagents/$subagent"
+        local dest=".claude/subagents/$subagent"
 
-        if [ -L "$link" ]; then
+        if [ ! -f "$source" ]; then
+            warning "  Source not found: $source (skipping)"
+            continue
+        fi
+
+        if [ -e "$dest" ]; then
             if [ "$DRY_RUN" = true ]; then
-                info "[DRY RUN] Would replace existing symlink: $style"
+                info "[DRY RUN] Would update: $subagent"
             else
-                rm "$link"
-                ln -s "$target" "$link"
-                success "  $style (replaced)"
+                cp "$source" "$dest"
+                success "  $subagent (updated)"
             fi
-        elif [ -e "$link" ]; then
-            warning "  $style exists as regular file (skipping)"
         else
             if [ "$DRY_RUN" = true ]; then
-                info "[DRY RUN] Would create symlink: $style"
+                info "[DRY RUN] Would create: $subagent"
             else
-                ln -s "$target" "$link"
-                CHANGES_MADE+=("created_symlink:$link")
-                success "  $style"
+                cp "$source" "$dest"
+                CHANGES_MADE+=("created_file:$dest")
+                success "  $subagent"
             fi
         fi
     done
 
-    success "All symlinks created"
+    # Subagent slash commands
+    local commands=(
+        "discovery.md"
+        "engineering.md"
+        "launch.md"
+    )
+
+    info "Creating subagent slash commands..."
+    for cmd in "${commands[@]}"; do
+        local source="$base_path/../.claude/commands/$cmd"
+        local dest=".claude/commands/$cmd"
+
+        if [ ! -f "$source" ]; then
+            warning "  Source not found: $source (skipping)"
+            continue
+        fi
+
+        if [ -e "$dest" ]; then
+            if [ "$DRY_RUN" = true ]; then
+                info "[DRY RUN] Would update: $cmd"
+            else
+                cp "$source" "$dest"
+                success "  $cmd (updated)"
+            fi
+        else
+            if [ "$DRY_RUN" = true ]; then
+                info "[DRY RUN] Would create: $cmd"
+            else
+                cp "$source" "$dest"
+                CHANGES_MADE+=("created_file:$dest")
+                success "  $cmd"
+            fi
+        fi
+    done
+
+    success "All subagents and commands created"
 }
 
 verify_installation() {
@@ -627,17 +664,23 @@ verify_installation() {
         fi
     done
 
-    info "Checking output style symlinks..."
-    for style in .claude/output-styles/*.md; do
-        if [ -e "$style" ]; then
-            if [ -L "$style" ]; then
-                if [ -e "$style" ]; then
-                    success "  $(basename "$style") → OK"
-                else
-                    error "  $(basename "$style") → BROKEN"
-                    errors=$((errors + 1))
-                fi
-            fi
+    info "Checking subagent files..."
+    for subagent in .claude/subagents/*.md; do
+        if [ -e "$subagent" ]; then
+            success "  $(basename "$subagent") → OK"
+        else
+            error "  $(basename "$subagent") → MISSING"
+            errors=$((errors + 1))
+        fi
+    done
+
+    info "Checking subagent commands..."
+    for cmd in .claude/commands/discovery.md .claude/commands/engineering.md .claude/commands/launch.md; do
+        if [ -e "$cmd" ]; then
+            success "  $(basename "$cmd") → OK"
+        else
+            error "  $(basename "$cmd") → MISSING"
+            errors=$((errors + 1))
         fi
     done
 
@@ -721,7 +764,8 @@ show_summary() {
     echo "  ✅ Claude Code directory structure"
     echo "  ✅ settings.json configuration"
     echo "  ✅ Hook symlinks ($([ "$CONFIG_TYPE" = "minimal" ] && echo "3" || echo "6") hooks)"
-    echo "  ✅ Output style symlinks (3 styles)"
+    echo "  ✅ Subagents (3 modes: Discovery, Engineering, Launch)"
+    echo "  ✅ Subagent slash commands"
 
     echo -e "\n${BOLD}Next Steps:${NC}"
     echo "  1. Open Claude Code in this directory"
@@ -729,10 +773,10 @@ show_summary() {
     echo "     ${BLUE}Say: \"Let's build a medical credentialing platform\"${NC}"
     echo "     ${GREEN}Expected: 🚨 CRITICAL REGULATORY ALERT${NC}"
     echo ""
-    echo "  3. Try switching behavior modes:"
-    echo "     ${BLUE}/output-style discovery-mode${NC}"
-    echo "     ${BLUE}/output-style engineering-mode${NC}"
-    echo "     ${BLUE}/output-style launch-mode${NC}"
+    echo "  3. Try the specialized subagents:"
+    echo "     ${BLUE}/discovery${NC}     - Market research & opportunity validation"
+    echo "     ${BLUE}/engineering${NC}   - High-velocity, high-quality development"
+    echo "     ${BLUE}/launch${NC}        - Revenue-focused growth & marketing"
 
     if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
         echo -e "\n${YELLOW}⚠️  Remember to set ANTHROPIC_API_KEY:${NC}"
