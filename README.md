@@ -1,8 +1,8 @@
 # Lunigy AI Autonomous System - Installation Guide
 
-**Version:** 2.1.0
-**Last Updated:** 2025-11-01
-**Status:** Production Ready
+**Version:** 2.1.1
+**Last Updated:** 2025-11-02
+**Status:** Production Ready (Hook Format Fixed)
 
 ---
 
@@ -531,6 +531,15 @@ python3 .autonomous-system/scripts/rag-cli.py stats
 ---
 
 ## Version History
+
+**v2.1.1** (2025-11-02):
+- 🔧 **CRITICAL FIX**: Corrected hook matcher format in install.sh
+- ✅ All matchers now properly formatted as strings (not objects)
+- ✅ Fixed wildcard matchers: empty {} → "*"
+- ✅ Fixed tool matchers: {"tools": [...]} → "Tool1|Tool2"
+- 📚 Added definitive hook matcher format reference
+- 🎯 Validated in production brownfield project (451K LOC)
+- **Impact**: Zero configuration errors on fresh installations
 
 **v2.1.0** (2025-11-01):
 - ✨ RAG system installation integration

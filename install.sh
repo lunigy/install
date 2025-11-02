@@ -36,7 +36,7 @@ readonly BOLD='\033[1m'
 readonly NC='\033[0m' # No Color
 
 # Configuration
-SCRIPT_VERSION="1.0.0"
+SCRIPT_VERSION="2.1.1"
 CONFIG_TYPE="full"
 REPO_URL=""
 BRANCH_NAME="main"
