@@ -531,14 +531,18 @@ create_symlinks() {
     step "Creating Symlinks"
 
     # Auto-detect structure (nested vs. flat)
-    local base_path
+    local base_path        # For symlinks (relative from .claude/hooks/)
+    local components_path  # For file operations (relative from project root)
+
     if [ -d ".autonomous-system/.autonomous-system/hooks" ]; then
         # Nested structure (git subtree from project repo)
         base_path="../../.autonomous-system/.autonomous-system"
+        components_path=".autonomous-system/.autonomous-system/claude-components"
         info "Detected nested structure (project repo)"
     elif [ -d ".autonomous-system/hooks" ]; then
         # Flat structure (git subtree from autonomous-system-only repo)
         base_path="../../.autonomous-system"
+        components_path=".autonomous-system/claude-components"
         info "Detected flat structure (autonomous-system repo)"
     else
         error "Cannot find autonomous system hooks directory"
@@ -595,7 +599,7 @@ create_symlinks() {
 
     info "Creating agent files..."
     for subagent in "${subagents[@]}"; do
-        local source="$base_path/claude-components/agents/$subagent"
+        local source="$components_path/agents/$subagent"
         local dest=".claude/agents/$subagent"
 
         if [ ! -f "$source" ]; then
