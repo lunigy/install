@@ -370,7 +370,6 @@ create_directories() {
     local dirs=(
         ".claude"
         ".claude/hooks"
-        ".claude/subagents"
         ".claude/commands"
         ".claude/agents"
         ".claude/skills"
@@ -594,10 +593,10 @@ create_symlinks() {
         "launch-mode.md"
     )
 
-    info "Creating subagent files..."
+    info "Creating agent files..."
     for subagent in "${subagents[@]}"; do
-        local source="$base_path/../.claude/subagents/$subagent"
-        local dest=".claude/subagents/$subagent"
+        local source="$base_path/claude-components/agents/$subagent"
+        local dest=".claude/agents/$subagent"
 
         if [ ! -f "$source" ]; then
             warning "  Source not found: $source (skipping)"
@@ -622,42 +621,10 @@ create_symlinks() {
         fi
     done
 
-    # Subagent slash commands
-    local commands=(
-        "discovery.md"
-        "engineering.md"
-        "launch.md"
-    )
+    # Note: Subagent slash commands (discovery.md, engineering.md, launch.md)
+    # were deprecated and moved to agents. No longer needed.
 
-    info "Creating subagent slash commands..."
-    for cmd in "${commands[@]}"; do
-        local source="$base_path/../.claude/commands/$cmd"
-        local dest=".claude/commands/$cmd"
-
-        if [ ! -f "$source" ]; then
-            warning "  Source not found: $source (skipping)"
-            continue
-        fi
-
-        if [ -e "$dest" ]; then
-            if [ "$DRY_RUN" = true ]; then
-                info "[DRY RUN] Would update: $cmd"
-            else
-                cp "$source" "$dest"
-                success "  $cmd (updated)"
-            fi
-        else
-            if [ "$DRY_RUN" = true ]; then
-                info "[DRY RUN] Would create: $cmd"
-            else
-                cp "$source" "$dest"
-                CHANGES_MADE+=("created_file:$dest")
-                success "  $cmd"
-            fi
-        fi
-    done
-
-    success "All subagents and commands created"
+    success "All agent files created"
 }
 
 verify_installation() {
@@ -678,25 +645,20 @@ verify_installation() {
         fi
     done
 
-    info "Checking subagent files..."
-    for subagent in .claude/subagents/*.md; do
-        if [ -e "$subagent" ]; then
-            success "  $(basename "$subagent") → OK"
-        else
-            error "  $(basename "$subagent") → MISSING"
-            errors=$((errors + 1))
+    info "Checking agent files..."
+    local agent_count=0
+    for agent in .claude/agents/*.md; do
+        if [ -e "$agent" ]; then
+            success "  $(basename "$agent") → OK"
+            agent_count=$((agent_count + 1))
         fi
     done
+    if [ $agent_count -eq 0 ]; then
+        warning "  No agent files found (this is OK for minimal setup)"
+    fi
 
-    info "Checking subagent commands..."
-    for cmd in .claude/commands/discovery.md .claude/commands/engineering.md .claude/commands/launch.md; do
-        if [ -e "$cmd" ]; then
-            success "  $(basename "$cmd") → OK"
-        else
-            error "  $(basename "$cmd") → MISSING"
-            errors=$((errors + 1))
-        fi
-    done
+    # Note: Deprecated command files (discovery.md, engineering.md, launch.md)
+    # are no longer checked as they were moved to agents
 
     # Validate JSON
     info "Validating settings.json..."
@@ -885,8 +847,7 @@ show_summary() {
     echo "  ✅ Claude Code directory structure"
     echo "  ✅ settings.json configuration"
     echo "  ✅ Hook symlinks ($([ "$CONFIG_TYPE" = "minimal" ] && echo "3" || echo "6") hooks)"
-    echo "  ✅ Subagents (3 modes: Discovery, Engineering, Launch)"
-    echo "  ✅ Subagent slash commands"
+    echo "  ✅ Agent files (3 modes: Discovery, Engineering, Launch)"
 
     # Add RAG status
     if [ "$INSTALL_RAG" = true ]; then
