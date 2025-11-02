@@ -590,45 +590,112 @@ create_symlinks() {
         fi
     done
 
-    # Subagent files (direct copies, no symlinks needed)
-    local subagents=(
-        "discovery-mode.md"
-        "engineering-mode.md"
-        "launch-mode.md"
-    )
-
+    # Agent files - copy ALL agent files from core system
     info "Creating agent files..."
-    for subagent in "${subagents[@]}"; do
-        local source="$components_path/agents/$subagent"
-        local dest=".claude/agents/$subagent"
+    local agent_count=0
+    if [ -d "$components_path/agents" ]; then
+        for agent_file in "$components_path/agents"/*; do
+            if [ -f "$agent_file" ]; then
+                local agent_name=$(basename "$agent_file")
+                local dest=".claude/agents/$agent_name"
 
-        if [ ! -f "$source" ]; then
-            warning "  Source not found: $source (skipping)"
-            continue
-        fi
-
-        if [ -e "$dest" ]; then
-            if [ "$DRY_RUN" = true ]; then
-                info "[DRY RUN] Would update: $subagent"
-            else
-                cp "$source" "$dest"
-                success "  $subagent (updated)"
+                if [ "$DRY_RUN" = true ]; then
+                    info "[DRY RUN] Would copy: $agent_name"
+                else
+                    cp "$agent_file" "$dest"
+                    CHANGES_MADE+=("created_file:$dest")
+                    success "  $agent_name"
+                fi
+                agent_count=$((agent_count + 1))
             fi
-        else
+        done
+    fi
+    info "Copied $agent_count agent files"
+
+    # Command symlinks - symlink ALL commands
+    info "Creating command symlinks..."
+    local cmd_count=0
+    if [ -d "$components_path/commands" ]; then
+        for cmd_file in "$components_path/commands"/*; do
+            if [ -f "$cmd_file" ]; then
+                local cmd_name=$(basename "$cmd_file")
+                local target="$base_path/claude-components/commands/$cmd_name"
+                local link=".claude/commands/$cmd_name"
+
+                if [ "$DRY_RUN" = true ]; then
+                    info "[DRY RUN] Would symlink: $cmd_name"
+                else
+                    if [ -L "$link" ] || [ -e "$link" ]; then
+                        rm -f "$link"
+                    fi
+                    ln -s "$target" "$link"
+                    CHANGES_MADE+=("created_symlink:$link")
+                    success "  $cmd_name"
+                fi
+                cmd_count=$((cmd_count + 1))
+            fi
+        done
+    fi
+    info "Created $cmd_count command symlinks"
+
+    # Skill symlinks - symlink ALL skill directories
+    info "Creating skill symlinks..."
+    local skill_count=0
+    if [ -d "$components_path/skills" ]; then
+        for skill_dir in "$components_path/skills"/*; do
+            if [ -d "$skill_dir" ]; then
+                local skill_name=$(basename "$skill_dir")
+                local target="$base_path/claude-components/skills/$skill_name"
+                local link=".claude/skills/$skill_name"
+
+                if [ "$DRY_RUN" = true ]; then
+                    info "[DRY RUN] Would symlink: $skill_name"
+                else
+                    if [ -L "$link" ] || [ -e "$link" ]; then
+                        rm -rf "$link"
+                    fi
+                    ln -s "$target" "$link"
+                    CHANGES_MADE+=("created_symlink:$link")
+                    success "  $skill_name"
+                fi
+                skill_count=$((skill_count + 1))
+            fi
+        done
+    fi
+    info "Created $skill_count skill symlinks"
+
+    # CLAUDE.md template
+    if [ -d ".autonomous-system/.autonomous-system/templates" ]; then
+        local claude_template=".autonomous-system/.autonomous-system/templates/CLAUDE.md.template"
+        local claude_dest="CLAUDE.md"
+
+        if [ -f "$claude_template" ] && [ ! -f "$claude_dest" ]; then
+            info "Creating CLAUDE.md from template..."
             if [ "$DRY_RUN" = true ]; then
-                info "[DRY RUN] Would create: $subagent"
+                info "[DRY RUN] Would copy CLAUDE.md template"
             else
-                cp "$source" "$dest"
-                CHANGES_MADE+=("created_file:$dest")
-                success "  $subagent"
+                cp "$claude_template" "$claude_dest"
+                CHANGES_MADE+=("created_file:$claude_dest")
+                success "  CLAUDE.md created"
             fi
         fi
-    done
+    elif [ -d ".autonomous-system/templates" ]; then
+        local claude_template=".autonomous-system/templates/CLAUDE.md.template"
+        local claude_dest="CLAUDE.md"
 
-    # Note: Subagent slash commands (discovery.md, engineering.md, launch.md)
-    # were deprecated and moved to agents. No longer needed.
+        if [ -f "$claude_template" ] && [ ! -f "$claude_dest" ]; then
+            info "Creating CLAUDE.md from template..."
+            if [ "$DRY_RUN" = true ]; then
+                info "[DRY RUN] Would copy CLAUDE.md template"
+            else
+                cp "$claude_template" "$claude_dest"
+                CHANGES_MADE+=("created_file:$claude_dest")
+                success "  CLAUDE.md created"
+            fi
+        fi
+    fi
 
-    success "All agent files created"
+    success "All components installed"
 }
 
 verify_installation() {
@@ -649,20 +716,65 @@ verify_installation() {
         fi
     done
 
+    # Check agents
     info "Checking agent files..."
     local agent_count=0
-    for agent in .claude/agents/*.md; do
-        if [ -e "$agent" ]; then
+    for agent in .claude/agents/*; do
+        if [ -f "$agent" ]; then
             success "  $(basename "$agent") → OK"
             agent_count=$((agent_count + 1))
         fi
     done
     if [ $agent_count -eq 0 ]; then
-        warning "  No agent files found (this is OK for minimal setup)"
+        error "  No agent files found!"
+        errors=$((errors + 1))
+    else
+        info "  $agent_count agent files found"
     fi
 
-    # Note: Deprecated command files (discovery.md, engineering.md, launch.md)
-    # are no longer checked as they were moved to agents
+    # Check commands
+    info "Checking command symlinks..."
+    local cmd_count=0
+    for cmd in .claude/commands/*; do
+        if [ -f "$cmd" ] || [ -L "$cmd" ]; then
+            if [ -L "$cmd" ] && [ -e "$cmd" ]; then
+                cmd_count=$((cmd_count + 1))
+            elif [ -f "$cmd" ]; then
+                cmd_count=$((cmd_count + 1))
+            fi
+        fi
+    done
+    if [ $cmd_count -eq 0 ]; then
+        error "  No command files found!"
+        errors=$((errors + 1))
+    else
+        info "  $cmd_count command files found"
+    fi
+
+    # Check skills
+    info "Checking skill symlinks..."
+    local skill_count=0
+    for skill in .claude/skills/*; do
+        if [ -d "$skill" ] && [ -L "$skill" ]; then
+            if [ -e "$skill" ]; then
+                skill_count=$((skill_count + 1))
+            fi
+        fi
+    done
+    if [ $skill_count -eq 0 ]; then
+        error "  No skill directories found!"
+        errors=$((errors + 1))
+    else
+        info "  $skill_count skill directories found"
+    fi
+
+    # Check CLAUDE.md
+    info "Checking CLAUDE.md..."
+    if [ -f "CLAUDE.md" ]; then
+        success "  CLAUDE.md → OK"
+    else
+        warning "  CLAUDE.md not found (optional)"
+    fi
 
     # Validate JSON
     info "Validating settings.json..."
@@ -851,7 +963,10 @@ show_summary() {
     echo "  ✅ Claude Code directory structure"
     echo "  ✅ settings.json configuration"
     echo "  ✅ Hook symlinks ($([ "$CONFIG_TYPE" = "minimal" ] && echo "3" || echo "6") hooks)"
-    echo "  ✅ Agent files (3 modes: Discovery, Engineering, Launch)"
+    echo "  ✅ Agent files (16 specialized agents)"
+    echo "  ✅ Command symlinks (20 slash commands)"
+    echo "  ✅ Skill symlinks (13 skills)"
+    echo "  ✅ CLAUDE.md project guide"
 
     # Add RAG status
     if [ "$INSTALL_RAG" = true ]; then
