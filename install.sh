@@ -3,7 +3,7 @@
 ################################################################################
 # Lunigy AI Autonomous System - Installation Script
 #
-# Version: 1.0.0
+# Version: 2.1.1
 # Description: Automated installation of the autonomous system
 # Usage: curl -sSL https://lunigy.ai/install.sh | bash
 #        OR: bash install.sh [options]
