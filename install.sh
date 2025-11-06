@@ -389,9 +389,8 @@ create_directories() {
     local dirs=(
         ".claude"
         ".claude/hooks"
-        ".claude/subagents"
-        ".claude/commands"
         ".claude/agents"
+        ".claude/commands"
         ".claude/skills"
     )
 
@@ -640,74 +639,67 @@ create_symlinks() {
     done
 
     # Subagent files (direct copies, no symlinks needed)
-    local subagents=(
-        "discovery-mode.md"
-        "engineering-mode.md"
-        "launch-mode.md"
-    )
+    # Dynamically discover all available subagent files (including subdirectories)
+    info "Discovering available subagent files..."
 
-    info "Creating subagent files..."
-    for subagent in "${subagents[@]}"; do
-        local source="$source_path/claude-components/agents/$subagent"
-        local dest=".claude/subagents/$subagent"
+    # Copy all .md files recursively from agents directory
+    local subagent_count=0
+    if [ -d "$source_path/claude-components/agents" ]; then
+        while IFS= read -r -d '' source_file; do
+            # Get relative path from agents directory
+            local rel_path="${source_file#$source_path/claude-components/agents/}"
+            local dest_file=".claude/agents/$rel_path"
+            local dest_dir="$(dirname "$dest_file")"
 
-        if [ ! -f "$source" ]; then
-            warning "  Source not found: $source (skipping)"
-            continue
-        fi
-
-        if [ -e "$dest" ]; then
-            if [ "$DRY_RUN" = true ]; then
-                info "[DRY RUN] Would update: $subagent"
-            else
-                cp "$source" "$dest"
-                success "  $subagent (updated)"
+            # Create destination directory if needed
+            if [ ! -d "$dest_dir" ]; then
+                mkdir -p "$dest_dir"
             fi
-        else
+
             if [ "$DRY_RUN" = true ]; then
-                info "[DRY RUN] Would create: $subagent"
+                info "[DRY RUN] Would copy: $rel_path"
             else
-                cp "$source" "$dest"
-                CHANGES_MADE+=("created_file:$dest")
-                success "  $subagent"
+                cp "$source_file" "$dest_file"
+                CHANGES_MADE+=("created_file:$dest_file")
+                subagent_count=$((subagent_count + 1))
             fi
-        fi
-    done
+        done < <(find "$source_path/claude-components/agents" -name "*.md" -type f -print0 2>/dev/null)
 
-    # Subagent slash commands (optional - these may not exist in all installations)
-    local commands=(
-        "discovery.md"
-        "engineering.md"
-        "launch.md"
-    )
+        success "Installed $subagent_count subagent files"
+    else
+        warning "Agents directory not found: $source_path/claude-components/agents"
+    fi
 
-    info "Creating subagent slash commands..."
-    for cmd in "${commands[@]}"; do
-        local source="$source_path/claude-components/commands/$cmd"
-        local dest=".claude/commands/$cmd"
+    # Slash commands (dynamically discover all available)
+    info "Discovering available command files..."
 
-        if [ ! -f "$source" ]; then
-            # These files are optional, so just skip silently
-            continue
-        fi
+    # Copy all .md files recursively from commands directory (including templates)
+    local command_count=0
+    if [ -d "$source_path/claude-components/commands" ]; then
+        while IFS= read -r -d '' source_file; do
+            # Get relative path from commands directory
+            local rel_path="${source_file#$source_path/claude-components/commands/}"
+            local dest_file=".claude/commands/$rel_path"
+            local dest_dir="$(dirname "$dest_file")"
 
-        if [ -e "$dest" ]; then
+            # Create destination directory if needed
+            if [ ! -d "$dest_dir" ]; then
+                mkdir -p "$dest_dir"
+            fi
+
             if [ "$DRY_RUN" = true ]; then
-                info "[DRY RUN] Would update: $cmd"
+                info "[DRY RUN] Would copy: $rel_path"
             else
-                cp "$source" "$dest"
-                success "  $cmd (updated)"
+                cp "$source_file" "$dest_file"
+                CHANGES_MADE+=("created_file:$dest_file")
+                command_count=$((command_count + 1))
             fi
-        else
-            if [ "$DRY_RUN" = true ]; then
-                info "[DRY RUN] Would create: $cmd"
-            else
-                cp "$source" "$dest"
-                CHANGES_MADE+=("created_file:$dest")
-                success "  $cmd"
-            fi
-        fi
-    done
+        done < <(find "$source_path/claude-components/commands" -name "*.md" -type f -print0 2>/dev/null)
+
+        success "Installed $command_count command files"
+    else
+        warning "Commands directory not found: $source_path/claude-components/commands"
+    fi
 
     success "All subagents and commands created"
 }
@@ -767,7 +759,7 @@ verify_installation() {
     done
 
     info "Checking subagent files..."
-    for subagent in .claude/subagents/*.md; do
+    for subagent in .claude/agents/*.md; do
         if [ -e "$subagent" ]; then
             success "  $(basename "$subagent") → OK"
         else
