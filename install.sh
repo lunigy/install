@@ -701,7 +701,58 @@ create_symlinks() {
         warning "Commands directory not found: $source_path/claude-components/commands"
     fi
 
-    success "All subagents and commands created"
+    # Skills (dynamically discover all available)
+    info "Discovering available skill files..."
+    info "[DEBUG] Source path: $source_path"
+    info "[DEBUG] Skills directory: $source_path/claude-components/skills"
+    info "[DEBUG] DRY_RUN=$DRY_RUN"
+
+    # Copy all skill directories recursively from skills directory
+    local skill_count=0
+    if [ -d "$source_path/claude-components/skills" ]; then
+        info "[DEBUG] Skills directory exists"
+
+        # Debug: Count available skills
+        local available_skills=$(find "$source_path/claude-components/skills" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
+        info "[DEBUG] Available skills in source: $available_skills"
+
+        while IFS= read -r -d '' source_dir; do
+            # Get skill name (directory name)
+            local skill_name="$(basename "$source_dir")"
+            local dest_dir=".claude/skills/$skill_name"
+
+            info "[DEBUG] Processing skill: $skill_name"
+            info "[DEBUG]   Source: $source_dir"
+            info "[DEBUG]   Dest: $dest_dir"
+
+            # Create destination directory if needed
+            if [ ! -d "$dest_dir" ]; then
+                mkdir -p "$dest_dir"
+                info "[DEBUG]   Created dest directory"
+            fi
+
+            # Copy all files from skill directory
+            if [ "$DRY_RUN" = true ]; then
+                info "[DRY RUN] Would copy skill: $skill_name"
+            else
+                info "[DEBUG]   Copying files..."
+                if cp -r "$source_dir/"* "$dest_dir/" 2>&1; then
+                    CHANGES_MADE+=("created_skill:$dest_dir")
+                    skill_count=$((skill_count + 1))
+                    success "  ✓ $skill_name"
+                else
+                    error "  ✗ Failed to copy: $skill_name"
+                fi
+            fi
+        done < <(find "$source_path/claude-components/skills" -mindepth 1 -maxdepth 1 -type d -print0 2>/dev/null)
+
+        info "[DEBUG] Loop completed. Skills copied: $skill_count"
+        success "Installed $skill_count skill directories"
+    else
+        warning "Skills directory not found: $source_path/claude-components/skills"
+    fi
+
+    success "All subagents, commands, and skills created"
 }
 
 create_claude_md() {
