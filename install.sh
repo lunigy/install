@@ -3,7 +3,7 @@
 ################################################################################
 # Lunigy AI Autonomous System - Installation Script
 #
-# Version: 2.1.1
+# Version: 1.0.0
 # Description: Automated installation of the autonomous system
 # Usage: curl -sSL https://lunigy.ai/install.sh | bash
 #        OR: bash install.sh [options]
@@ -36,7 +36,7 @@ readonly BOLD='\033[1m'
 readonly NC='\033[0m' # No Color
 
 # Configuration
-SCRIPT_VERSION="2.1.1"
+SCRIPT_VERSION="1.0.0"
 CONFIG_TYPE="full"
 REPO_URL=""
 BRANCH_NAME="main"
@@ -45,10 +45,15 @@ DRY_RUN=false
 INSTALL_RAG=true           # Install RAG dependencies
 SETUP_RAG_HOOKS=false      # Install RAG git hooks
 RUN_RAG_INDEX=false        # Run initial RAG indexing
+SETUP_DASHBOARD=true       # Setup health dashboard
+SKIP_DASHBOARD=false       # Skip dashboard installation
+START_DASHBOARD=true       # Start dashboard after installation
+DASHBOARD_PORT=3000        # Dashboard port
 
 # State tracking
 BACKUP_DIR=""
 CHANGES_MADE=()
+DASHBOARD_PID=""
 
 ################################################################################
 # Utility Functions
@@ -98,17 +103,31 @@ OPTIONS:
     --branch <name>         Branch name (default: main)
     --skip-prompts          Use defaults without prompting
     --dry-run               Show what would be done without doing it
+
+    RAG System:
     --skip-rag              Skip RAG system installation (not recommended)
     --rag-hooks             Install RAG auto-indexing git hooks
     --rag-index             Run initial RAG index after installation
+
+    Health Dashboard:
+    --skip-dashboard        Skip health dashboard installation
+    --no-start-dashboard    Install dashboard but don't start server
+    --dashboard-port <port> Dashboard port (default: 3000)
+
     --help                  Show this help message
 
 EXAMPLES:
-    # Interactive installation (recommended)
+    # Interactive installation (recommended - includes dashboard)
     bash install.sh --repo-url=git@github.com:lunigy/ai-autonomous-system-system.git
 
-    # Minimal configuration without prompts
-    bash install.sh --repo-url=<url> --config=minimal --skip-prompts
+    # Full installation with RAG and dashboard auto-start
+    bash install.sh --repo-url=<url> --config=full --rag-hooks --rag-index
+
+    # Minimal installation without dashboard (headless/CI mode)
+    bash install.sh --repo-url=<url> --config=minimal --skip-dashboard --skip-prompts
+
+    # Custom dashboard port
+    bash install.sh --repo-url=<url> --dashboard-port=8080
 
     # Dry run to see what would happen
     bash install.sh --repo-url=<url> --dry-run
@@ -370,6 +389,7 @@ create_directories() {
     local dirs=(
         ".claude"
         ".claude/hooks"
+        ".claude/subagents"
         ".claude/commands"
         ".claude/agents"
         ".claude/skills"
@@ -414,6 +434,7 @@ create_settings_json() {
   "hooks": {
     "SessionStart": [
       {
+        "matcher": "*",
         "hooks": [
           {
             "type": "command",
@@ -424,6 +445,7 @@ create_settings_json() {
     ],
     "UserPromptSubmit": [
       {
+        "matcher": "*",
         "hooks": [
           {
             "type": "command",
@@ -434,7 +456,7 @@ create_settings_json() {
     ],
     "PostToolUse": [
       {
-        "matcher": "Write(*)|Edit(*)|MultiEdit(*)",
+        "matcher": "Write|Edit|MultiEdit",
         "hooks": [
           {
             "type": "command",
@@ -458,6 +480,7 @@ EOF
   "hooks": {
     "SessionStart": [
       {
+        "matcher": "*",
         "hooks": [
           {
             "type": "command",
@@ -468,6 +491,7 @@ EOF
     ],
     "UserPromptSubmit": [
       {
+        "matcher": "*",
         "hooks": [
           {
             "type": "command",
@@ -482,7 +506,7 @@ EOF
     ],
     "PreToolUse": [
       {
-        "matcher": "Write(*)|Edit(*)",
+        "matcher": "Write|Edit",
         "hooks": [
           {
             "type": "command",
@@ -493,7 +517,7 @@ EOF
     ],
     "PostToolUse": [
       {
-        "matcher": "Write(*)|Edit(*)|MultiEdit(*)",
+        "matcher": "Write|Edit|MultiEdit",
         "hooks": [
           {
             "type": "command",
@@ -502,8 +526,31 @@ EOF
         ]
       }
     ],
+    "SubagentStop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/subagent-stop-metrics.py",
+            "description": "Track subagent performance metrics"
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/subagent-stop-learning.py",
+            "description": "Extract learnings from subagent execution"
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/subagent-stop-validator.py",
+            "description": "Validate subagent output quality"
+          }
+        ]
+      }
+    ],
     "SessionEnd": [
       {
+        "matcher": "*",
         "hooks": [
           {
             "type": "command",
@@ -531,18 +578,17 @@ create_symlinks() {
     step "Creating Symlinks"
 
     # Auto-detect structure (nested vs. flat)
-    local base_path        # For symlinks (relative from .claude/hooks/)
-    local components_path  # For file operations (relative from project root)
-
+    local base_path
+    local source_path
     if [ -d ".autonomous-system/.autonomous-system/hooks" ]; then
         # Nested structure (git subtree from project repo)
         base_path="../../.autonomous-system/.autonomous-system"
-        components_path=".autonomous-system/.autonomous-system/claude-components"
+        source_path=".autonomous-system/.autonomous-system"
         info "Detected nested structure (project repo)"
     elif [ -d ".autonomous-system/hooks" ]; then
         # Flat structure (git subtree from autonomous-system-only repo)
         base_path="../../.autonomous-system"
-        components_path=".autonomous-system/claude-components"
+        source_path=".autonomous-system"
         info "Detected flat structure (autonomous-system repo)"
     else
         error "Cannot find autonomous system hooks directory"
@@ -561,6 +607,9 @@ create_symlinks() {
             "session-end-learning-extraction.py"
             "feature-request-detector.py"
             "pre-implementation-design-check.py"
+            "subagent-stop-metrics.py"
+            "subagent-stop-learning.py"
+            "subagent-stop-validator.py"
         )
     fi
 
@@ -590,112 +639,113 @@ create_symlinks() {
         fi
     done
 
-    # Agent files - copy ALL agent files from core system
-    info "Creating agent files..."
-    local agent_count=0
-    if [ -d "$components_path/agents" ]; then
-        for agent_file in "$components_path/agents"/*; do
-            if [ -f "$agent_file" ]; then
-                local agent_name=$(basename "$agent_file")
-                local dest=".claude/agents/$agent_name"
+    # Subagent files (direct copies, no symlinks needed)
+    local subagents=(
+        "discovery-mode.md"
+        "engineering-mode.md"
+        "launch-mode.md"
+    )
 
-                if [ "$DRY_RUN" = true ]; then
-                    info "[DRY RUN] Would copy: $agent_name"
-                else
-                    cp "$agent_file" "$dest"
-                    CHANGES_MADE+=("created_file:$dest")
-                    success "  $agent_name"
-                fi
-                agent_count=$((agent_count + 1))
+    info "Creating subagent files..."
+    for subagent in "${subagents[@]}"; do
+        local source="$source_path/claude-components/agents/$subagent"
+        local dest=".claude/subagents/$subagent"
+
+        if [ ! -f "$source" ]; then
+            warning "  Source not found: $source (skipping)"
+            continue
+        fi
+
+        if [ -e "$dest" ]; then
+            if [ "$DRY_RUN" = true ]; then
+                info "[DRY RUN] Would update: $subagent"
+            else
+                cp "$source" "$dest"
+                success "  $subagent (updated)"
             fi
-        done
-    fi
-    info "Copied $agent_count agent files"
-
-    # Command symlinks - symlink ALL commands
-    info "Creating command symlinks..."
-    local cmd_count=0
-    if [ -d "$components_path/commands" ]; then
-        for cmd_file in "$components_path/commands"/*; do
-            if [ -f "$cmd_file" ]; then
-                local cmd_name=$(basename "$cmd_file")
-                local target="$base_path/claude-components/commands/$cmd_name"
-                local link=".claude/commands/$cmd_name"
-
-                if [ "$DRY_RUN" = true ]; then
-                    info "[DRY RUN] Would symlink: $cmd_name"
-                else
-                    if [ -L "$link" ] || [ -e "$link" ]; then
-                        rm -f "$link"
-                    fi
-                    ln -s "$target" "$link"
-                    CHANGES_MADE+=("created_symlink:$link")
-                    success "  $cmd_name"
-                fi
-                cmd_count=$((cmd_count + 1))
+        else
+            if [ "$DRY_RUN" = true ]; then
+                info "[DRY RUN] Would create: $subagent"
+            else
+                cp "$source" "$dest"
+                CHANGES_MADE+=("created_file:$dest")
+                success "  $subagent"
             fi
-        done
-    fi
-    info "Created $cmd_count command symlinks"
+        fi
+    done
 
-    # Skill symlinks - symlink ALL skill directories
-    info "Creating skill symlinks..."
-    local skill_count=0
-    if [ -d "$components_path/skills" ]; then
-        for skill_dir in "$components_path/skills"/*; do
-            if [ -d "$skill_dir" ]; then
-                local skill_name=$(basename "$skill_dir")
-                local target="$base_path/claude-components/skills/$skill_name"
-                local link=".claude/skills/$skill_name"
+    # Subagent slash commands (optional - these may not exist in all installations)
+    local commands=(
+        "discovery.md"
+        "engineering.md"
+        "launch.md"
+    )
 
-                if [ "$DRY_RUN" = true ]; then
-                    info "[DRY RUN] Would symlink: $skill_name"
-                else
-                    if [ -L "$link" ] || [ -e "$link" ]; then
-                        rm -rf "$link"
-                    fi
-                    ln -s "$target" "$link"
-                    CHANGES_MADE+=("created_symlink:$link")
-                    success "  $skill_name"
-                fi
-                skill_count=$((skill_count + 1))
+    info "Creating subagent slash commands..."
+    for cmd in "${commands[@]}"; do
+        local source="$source_path/claude-components/commands/$cmd"
+        local dest=".claude/commands/$cmd"
+
+        if [ ! -f "$source" ]; then
+            # These files are optional, so just skip silently
+            continue
+        fi
+
+        if [ -e "$dest" ]; then
+            if [ "$DRY_RUN" = true ]; then
+                info "[DRY RUN] Would update: $cmd"
+            else
+                cp "$source" "$dest"
+                success "  $cmd (updated)"
             fi
-        done
-    fi
-    info "Created $skill_count skill symlinks"
+        else
+            if [ "$DRY_RUN" = true ]; then
+                info "[DRY RUN] Would create: $cmd"
+            else
+                cp "$source" "$dest"
+                CHANGES_MADE+=("created_file:$dest")
+                success "  $cmd"
+            fi
+        fi
+    done
 
-    # CLAUDE.md template
+    success "All subagents and commands created"
+}
+
+create_claude_md() {
+    step "Creating CLAUDE.md Configuration"
+
+    local template_path
     if [ -d ".autonomous-system/.autonomous-system/templates" ]; then
-        local claude_template=".autonomous-system/.autonomous-system/templates/CLAUDE.md.template"
-        local claude_dest="CLAUDE.md"
+        template_path=".autonomous-system/.autonomous-system/templates/CLAUDE.md.template"
+    else
+        template_path=".autonomous-system/templates/CLAUDE.md.template"
+    fi
 
-        if [ -f "$claude_template" ] && [ ! -f "$claude_dest" ]; then
-            info "Creating CLAUDE.md from template..."
-            if [ "$DRY_RUN" = true ]; then
-                info "[DRY RUN] Would copy CLAUDE.md template"
-            else
-                cp "$claude_template" "$claude_dest"
-                CHANGES_MADE+=("created_file:$claude_dest")
-                success "  CLAUDE.md created"
-            fi
-        fi
-    elif [ -d ".autonomous-system/templates" ]; then
-        local claude_template=".autonomous-system/templates/CLAUDE.md.template"
-        local claude_dest="CLAUDE.md"
+    if [ ! -f "$template_path" ]; then
+        warning "CLAUDE.md template not found at: $template_path"
+        info "Skipping CLAUDE.md creation"
+        return 0
+    fi
 
-        if [ -f "$claude_template" ] && [ ! -f "$claude_dest" ]; then
-            info "Creating CLAUDE.md from template..."
-            if [ "$DRY_RUN" = true ]; then
-                info "[DRY RUN] Would copy CLAUDE.md template"
-            else
-                cp "$claude_template" "$claude_dest"
-                CHANGES_MADE+=("created_file:$claude_dest")
-                success "  CLAUDE.md created"
-            fi
+    if [ -f "CLAUDE.md" ]; then
+        warning "CLAUDE.md already exists"
+        if [ "$DRY_RUN" = false ]; then
+            local backup="CLAUDE.md.backup.$(date +%Y%m%d_%H%M%S)"
+            mv CLAUDE.md "$backup"
+            CHANGES_MADE+=("backed_up:CLAUDE.md:$backup")
+            info "Existing CLAUDE.md backed up to: $backup"
         fi
     fi
 
-    success "All components installed"
+    if [ "$DRY_RUN" = true ]; then
+        info "[DRY RUN] Would create CLAUDE.md from template"
+    else
+        cp "$template_path" CLAUDE.md
+        CHANGES_MADE+=("created_file:CLAUDE.md")
+        success "Created CLAUDE.md at project root"
+        info "This file is automatically loaded by Claude Code at session start"
+    fi
 }
 
 verify_installation() {
@@ -716,65 +766,25 @@ verify_installation() {
         fi
     done
 
-    # Check agents
-    info "Checking agent files..."
-    local agent_count=0
-    for agent in .claude/agents/*; do
-        if [ -f "$agent" ]; then
-            success "  $(basename "$agent") → OK"
-            agent_count=$((agent_count + 1))
+    info "Checking subagent files..."
+    for subagent in .claude/subagents/*.md; do
+        if [ -e "$subagent" ]; then
+            success "  $(basename "$subagent") → OK"
+        else
+            error "  $(basename "$subagent") → MISSING"
+            errors=$((errors + 1))
         fi
     done
-    if [ $agent_count -eq 0 ]; then
-        error "  No agent files found!"
-        errors=$((errors + 1))
-    else
-        info "  $agent_count agent files found"
-    fi
 
-    # Check commands
-    info "Checking command symlinks..."
-    local cmd_count=0
-    for cmd in .claude/commands/*; do
-        if [ -f "$cmd" ] || [ -L "$cmd" ]; then
-            if [ -L "$cmd" ] && [ -e "$cmd" ]; then
-                cmd_count=$((cmd_count + 1))
-            elif [ -f "$cmd" ]; then
-                cmd_count=$((cmd_count + 1))
-            fi
+    info "Checking subagent commands..."
+    for cmd in .claude/commands/discovery.md .claude/commands/engineering.md .claude/commands/launch.md; do
+        if [ -e "$cmd" ]; then
+            success "  $(basename "$cmd") → OK"
+        else
+            error "  $(basename "$cmd") → MISSING"
+            errors=$((errors + 1))
         fi
     done
-    if [ $cmd_count -eq 0 ]; then
-        error "  No command files found!"
-        errors=$((errors + 1))
-    else
-        info "  $cmd_count command files found"
-    fi
-
-    # Check skills
-    info "Checking skill symlinks..."
-    local skill_count=0
-    for skill in .claude/skills/*; do
-        if [ -d "$skill" ] && [ -L "$skill" ]; then
-            if [ -e "$skill" ]; then
-                skill_count=$((skill_count + 1))
-            fi
-        fi
-    done
-    if [ $skill_count -eq 0 ]; then
-        error "  No skill directories found!"
-        errors=$((errors + 1))
-    else
-        info "  $skill_count skill directories found"
-    fi
-
-    # Check CLAUDE.md
-    info "Checking CLAUDE.md..."
-    if [ -f "CLAUDE.md" ]; then
-        success "  CLAUDE.md → OK"
-    else
-        warning "  CLAUDE.md not found (optional)"
-    fi
 
     # Validate JSON
     info "Validating settings.json..."
@@ -783,6 +793,16 @@ verify_installation() {
     else
         error "  settings.json has invalid JSON syntax"
         errors=$((errors + 1))
+    fi
+
+    # Check CLAUDE.md
+    info "Checking CLAUDE.md..."
+    if [ -f "CLAUDE.md" ]; then
+        success "  CLAUDE.md exists at project root"
+        info "  This file is automatically loaded by Claude Code"
+    else
+        warning "  CLAUDE.md not found (recommended for Claude Code)"
+        info "  Create manually from: .autonomous-system/templates/CLAUDE.md.template"
     fi
 
     if [ $errors -gt 0 ]; then
@@ -890,6 +910,117 @@ run_initial_rag_index() {
 }
 
 ################################################################################
+# Dashboard Setup
+################################################################################
+
+setup_dashboard() {
+    if [ "$SKIP_DASHBOARD" = true ]; then
+        info "Skipping dashboard setup (--skip-dashboard specified)"
+        return 0
+    fi
+
+    step "Setting Up Health Dashboard"
+
+    # Check if dashboard template exists
+    local template_dir
+    if [ -d ".autonomous-system/templates/dashboard" ]; then
+        template_dir=".autonomous-system/templates/dashboard"
+    elif [ -d ".autonomous-system/.autonomous-system/templates/dashboard" ]; then
+        template_dir=".autonomous-system/.autonomous-system/templates/dashboard"
+    else
+        warning "Dashboard template not found - skipping"
+        info "Dashboard can be set up later with: bash .autonomous-system/scripts/initialize-dashboard.sh"
+        return 0
+    fi
+
+    if [ "$DRY_RUN" = true ]; then
+        info "[DRY RUN] Would initialize dashboard from template"
+        return 0
+    fi
+
+    # Get project name
+    local project_name=$(basename "$PWD")
+    local project_id=$(echo "$project_name" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')
+
+    info "Initializing dashboard for project: $project_name"
+
+    # Check if initialize-dashboard.sh exists
+    local init_script
+    if [ -f ".autonomous-system/scripts/initialize-dashboard.sh" ]; then
+        init_script=".autonomous-system/scripts/initialize-dashboard.sh"
+    elif [ -f ".autonomous-system/.autonomous-system/scripts/initialize-dashboard.sh" ]; then
+        init_script=".autonomous-system/.autonomous-system/scripts/initialize-dashboard.sh"
+    else
+        warning "Dashboard initialization script not found"
+        info "You can copy the dashboard template manually: cp -r $template_dir apps/dashboard"
+        return 0
+    fi
+
+    # Run initialization script
+    if bash "$init_script" "$project_name" "$project_id"; then
+        success "Dashboard initialized at apps/dashboard/"
+        CHANGES_MADE+=("initialized_dashboard")
+
+        # Install dependencies
+        if [ -d "apps/dashboard" ]; then
+            info "Installing dashboard dependencies (this may take 30-60 seconds)..."
+            cd apps/dashboard
+
+            if npm install --silent 2>/dev/null; then
+                success "Dashboard dependencies installed"
+                CHANGES_MADE+=("installed_dashboard_deps")
+
+                # Start dashboard if requested
+                if [ "$START_DASHBOARD" = true ]; then
+                    start_dashboard_server
+                fi
+            else
+                warning "Dashboard dependencies installation failed"
+                warning "Install manually: cd apps/dashboard && npm install"
+            fi
+
+            cd ../..
+        fi
+    else
+        warning "Dashboard initialization failed"
+        warning "You can initialize manually: bash $init_script \"$project_name\" \"$project_id\""
+    fi
+}
+
+start_dashboard_server() {
+    info "Starting dashboard server..."
+
+    # Start in background
+    npm run dev > .dashboard.log 2>&1 &
+    local pid=$!
+    echo "$pid" > .dashboard.pid
+    DASHBOARD_PID="$pid"
+
+    # Wait for server to start (max 10 seconds)
+    local max_attempts=20
+    local attempt=0
+    local server_ready=false
+
+    while [ $attempt -lt $max_attempts ]; do
+        if curl -s "http://localhost:$DASHBOARD_PORT" > /dev/null 2>&1; then
+            server_ready=true
+            break
+        fi
+        sleep 0.5
+        ((attempt++))
+    done
+
+    if [ "$server_ready" = true ]; then
+        success "Dashboard running at http://localhost:$DASHBOARD_PORT"
+        CHANGES_MADE+=("started_dashboard")
+    else
+        warning "Dashboard server may not be ready yet"
+        info "Check status: curl http://localhost:$DASHBOARD_PORT"
+        info "View logs: tail -f apps/dashboard/.dashboard.log"
+    fi
+}
+
+################################################################################
 # Cleanup and Rollback
 ################################################################################
 
@@ -926,6 +1057,23 @@ cleanup_on_failure() {
                 info "Removing symlink: $link..."
                 rm -f "$link" 2>/dev/null || true
                 ;;
+            created_file:CLAUDE.md)
+                info "Removing CLAUDE.md..."
+                rm -f CLAUDE.md 2>/dev/null || true
+                ;;
+            backed_up:CLAUDE.md:*)
+                local backup="${change#backed_up:CLAUDE.md:}"
+                info "Restoring CLAUDE.md from backup..."
+                if [ -f "$backup" ]; then
+                    mv "$backup" CLAUDE.md
+                    info "Restored: $backup"
+                fi
+                ;;
+            created_file:*)
+                local file="${change#created_file:}"
+                info "Removing file: $file..."
+                rm -f "$file" 2>/dev/null || true
+                ;;
             installed_rag_deps)
                 info "RAG dependencies were installed but may need manual cleanup"
                 ;;
@@ -937,6 +1085,21 @@ cleanup_on_failure() {
             created_rag_index)
                 info "Removing RAG index..."
                 rm -rf .autonomous-system/.rag-cache 2>/dev/null || true
+                ;;
+            initialized_dashboard)
+                info "Removing dashboard directory..."
+                rm -rf apps/dashboard 2>/dev/null || true
+                ;;
+            installed_dashboard_deps)
+                info "Dashboard dependencies were installed (in apps/dashboard/node_modules)"
+                ;;
+            started_dashboard)
+                info "Stopping dashboard server..."
+                if [ -f "apps/dashboard/.dashboard.pid" ]; then
+                    local pid=$(cat apps/dashboard/.dashboard.pid)
+                    kill "$pid" 2>/dev/null || true
+                    rm -f apps/dashboard/.dashboard.pid
+                fi
                 ;;
         esac
     done
@@ -962,11 +1125,9 @@ show_summary() {
     echo "  ✅ Autonomous system ($CONFIG_TYPE configuration)"
     echo "  ✅ Claude Code directory structure"
     echo "  ✅ settings.json configuration"
-    echo "  ✅ Hook symlinks ($([ "$CONFIG_TYPE" = "minimal" ] && echo "3" || echo "6") hooks)"
-    echo "  ✅ Agent files (16 specialized agents)"
-    echo "  ✅ Command symlinks (20 slash commands)"
-    echo "  ✅ Skill symlinks (13 skills)"
-    echo "  ✅ CLAUDE.md project guide"
+    echo "  ✅ Hook symlinks ($([ "$CONFIG_TYPE" = "minimal" ] && echo "3" || echo "9") hooks)"
+    echo "  ✅ Subagents (3 modes: Discovery, Engineering, Launch)"
+    echo "  ✅ Subagent slash commands"
 
     # Add RAG status
     if [ "$INSTALL_RAG" = true ]; then
@@ -979,34 +1140,67 @@ show_summary() {
         echo "  ✅ RAG codebase index"
     fi
 
-    echo -e "\n${BOLD}Next Steps:${NC}"
-    echo "  1. Open Claude Code in this directory"
-
-    # If RAG was installed, add RAG-specific instructions
-    if [ "$INSTALL_RAG" = true ]; then
-        echo "  2. Enable RAG automatic context loading:"
-        echo "     Add to .claude/settings.json PreToolUse hook:"
-        echo "     ${BLUE}\$CLAUDE_PROJECT_DIR/.autonomous-system/hooks/pre-tool-use-rag-context.py${NC}"
-        echo ""
-        if [ "$RUN_RAG_INDEX" = false ]; then
-            echo "  3. Index your codebase (first time):"
-            echo "     ${BLUE}python3 .autonomous-system/scripts/rag-cli.py index${NC}"
-            echo ""
+    # Add Dashboard status
+    if [ "$SKIP_DASHBOARD" = false ] && [ -d "apps/dashboard" ]; then
+        echo "  ✅ Health dashboard initialized"
+        if [ -d "apps/dashboard/node_modules" ]; then
+            echo "  ✅ Dashboard dependencies installed"
+        fi
+        if [ -n "$DASHBOARD_PID" ]; then
+            echo "  ✅ Dashboard running at http://localhost:$DASHBOARD_PORT"
         fi
     fi
 
-    echo "  4. Test the regulatory validator:"
+    # Dashboard URL section if running
+    if [ -n "$DASHBOARD_PID" ] || ([ -f "apps/dashboard/.dashboard.pid" ] && kill -0 $(cat apps/dashboard/.dashboard.pid) 2>/dev/null); then
+        echo ""
+        echo -e "${BOLD}${GREEN}🎯 Your Health Dashboard:${NC}"
+        echo "  📊 View at: ${GREEN}http://localhost:$DASHBOARD_PORT${NC}"
+        echo "  📈 Sprint progress tracked automatically"
+        echo "  📝 User stories visible in real-time"
+        echo "  🧠 Learnings displayed as they're captured"
+        echo "  🚨 Regulatory alerts shown with context"
+        echo ""
+        echo "  ${BLUE}Tip:${NC} Keep this tab open to monitor your autonomous system!"
+    fi
+
+    echo -e "\n${BOLD}Next Steps:${NC}"
+
+    # Configuration needed?
+    if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
+        echo -e "\n${YELLOW}⚠️  REQUIRED: Configure API Credentials${NC}"
+        echo "     Get your key from: https://console.anthropic.com/settings/keys"
+        echo "     Set with: ${BLUE}export ANTHROPIC_API_KEY='your-key-here'${NC}"
+        echo "     Add to ~/.bashrc or ~/.zshrc to persist"
+        echo ""
+    fi
+
+    echo "  1. Verify system is ready:"
+    echo "     ${BLUE}bash .autonomous-system/scripts/validate-system.sh${NC}"
+    echo ""
+    echo "  2. Open Claude Code in this directory"
+    echo ""
+    echo "  3. Test the regulatory validator:"
     echo "     ${BLUE}Say: \"Let's build a medical credentialing platform\"${NC}"
     echo "     ${GREEN}Expected: 🚨 CRITICAL REGULATORY ALERT${NC}"
     echo ""
-    echo "  3. Try the specialized subagents:"
+    echo "  4. Try the specialized subagents:"
     echo "     ${BLUE}/discovery${NC}     - Market research & opportunity validation"
     echo "     ${BLUE}/engineering${NC}   - High-velocity, high-quality development"
     echo "     ${BLUE}/launch${NC}        - Revenue-focused growth & marketing"
 
-    if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
-        echo -e "\n${YELLOW}⚠️  Remember to set ANTHROPIC_API_KEY:${NC}"
-        echo "     ${BLUE}export ANTHROPIC_API_KEY='your-key-here'${NC}"
+    # If RAG was installed, add RAG-specific instructions
+    if [ "$INSTALL_RAG" = true ]; then
+        echo ""
+        echo "  5. Enable RAG automatic context loading (optional):"
+        echo "     Add to .claude/settings.json PreToolUse hook:"
+        echo "     ${BLUE}\$CLAUDE_PROJECT_DIR/.autonomous-system/hooks/pre-tool-use-rag-context.py${NC}"
+        echo ""
+        if [ "$RUN_RAG_INDEX" = false ]; then
+            echo "  6. Index your codebase for RAG (first time):"
+            echo "     ${BLUE}python3 .autonomous-system/scripts/rag-cli.py index${NC}"
+            echo ""
+        fi
     fi
 
     echo -e "\n${BOLD}Documentation:${NC}"
@@ -1065,6 +1259,22 @@ main() {
                 RUN_RAG_INDEX=true
                 shift
                 ;;
+            --skip-dashboard)
+                SKIP_DASHBOARD=true
+                shift
+                ;;
+            --no-start-dashboard)
+                START_DASHBOARD=false
+                shift
+                ;;
+            --dashboard-port=*)
+                DASHBOARD_PORT="${1#*=}"
+                shift
+                ;;
+            --dashboard-port)
+                DASHBOARD_PORT="$2"
+                shift 2
+                ;;
             --help)
                 show_help
                 ;;
@@ -1092,12 +1302,33 @@ main() {
     create_directories
     create_settings_json
     create_symlinks
+    create_claude_md
     install_rag_dependencies
     setup_rag_hooks
     run_initial_rag_index
+    setup_dashboard
 
     if [ "$DRY_RUN" = false ]; then
-        verify_installation
+        verify_installation || {
+            error "Installation verification failed"
+            exit 1
+        }
+
+        # Run system validation
+        if [ -f ".autonomous-system/scripts/validate-system.sh" ]; then
+            echo ""
+            info "Running system validation..."
+            if bash .autonomous-system/scripts/validate-system.sh; then
+                success "System validation passed!"
+            else
+                warning "System validation completed with warnings or errors"
+                warning "Review the output above and fix any critical issues"
+                echo ""
+                echo "You can re-run validation anytime with:"
+                echo "  bash .autonomous-system/scripts/validate-system.sh"
+            fi
+        fi
+
         show_summary
     else
         info "\n[DRY RUN] Installation simulation complete. No changes were made."
