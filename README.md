@@ -18,7 +18,7 @@ bash <(curl -sSL https://raw.githubusercontent.com/lunigy/install/main/bootstrap
 - ✅ Install the autonomous system
 - ✅ Setup health dashboard (http://localhost:3000)
 - ✅ Configure 9 intelligent hooks
-- ✅ Deploy 3 specialized subagents
+- ✅ Deploy 25 specialized subagents + 34 workflow commands
 - ✅ Enable RAG system (optional)
 - ✅ Validate everything works
 
@@ -276,8 +276,8 @@ your-project/
 ├── .claude/                     # Claude Code configuration
 │   ├── settings.json           # Hook configuration
 │   ├── hooks/                  # Symlinks to system hooks
-│   ├── subagents/              # 3 specialized subagents
-│   └── commands/               # Slash commands
+│   ├── subagents/              # 25 specialized subagents
+│   └── commands/               # 34 workflow commands
 │
 └── apps/dashboard/             # Health dashboard ✨ NEW
     ├── src/                    # Next.js app
@@ -516,7 +516,7 @@ bash .autonomous-system/scripts/validate-system.sh
 | **Quality gates** | ❌ None | ✅ Automatic |
 | **Dashboard** | ❌ None | ✅ Real-time |
 | **Knowledge base** | ❌ None | ✅ Accumulates |
-| **Specialized modes** | ❌ Generic | ✅ 3 subagents |
+| **Specialized modes** | ❌ Generic | ✅ 25 subagents |
 | **Cost optimization** | ❌ Full cost | ✅ 67% reduction (RAG) |
 
 ---
@@ -537,7 +537,7 @@ bash <(curl -sSL https://raw.githubusercontent.com/lunigy/install/main/bootstrap
 - ✅ Complete autonomous system
 - ✅ Health dashboard running
 - ✅ 9 intelligent hooks active
-- ✅ 3 specialized subagents ready
+- ✅ 25 specialized subagents + 34 commands ready
 - ✅ Knowledge base loaded
 - ✅ Everything validated
 
