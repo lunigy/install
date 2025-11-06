@@ -31,7 +31,7 @@ readonly BOLD='\033[1m'
 readonly NC='\033[0m'
 
 # Configuration
-readonly INSTALL_SCRIPT_URL="https://raw.githubusercontent.com/lunigy/ai-autonomous-system/main/install.sh"
+readonly INSTALL_SCRIPT_URL="https://raw.githubusercontent.com/lunigy/install/main/install.sh"
 readonly REPO_URL="https://github.com/lunigy/ai-autonomous-system.git"
 readonly TEMP_SCRIPT="/tmp/lunigy-install-$$.sh"
 
