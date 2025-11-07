@@ -3,6 +3,7 @@
 ################################################################################
 # Lunigy AI Autonomous System - Bootstrap Installer
 #
+# Version: 2.0.0
 # Purpose: Single-command installation for public use
 # Usage: bash <(curl -sSL https://raw.githubusercontent.com/lunigy/install/main/bootstrap.sh)
 #
@@ -31,6 +32,7 @@ readonly BOLD='\033[1m'
 readonly NC='\033[0m'
 
 # Configuration
+readonly BOOTSTRAP_VERSION="2.0.0"
 readonly INSTALL_SCRIPT_URL="https://raw.githubusercontent.com/lunigy/install/main/install.sh"
 readonly REPO_URL="https://github.com/lunigy/ai-autonomous-system.git"
 readonly TEMP_SCRIPT="/tmp/lunigy-install-$$.sh"
@@ -60,6 +62,7 @@ print_header() {
     echo "╔════════════════════════════════════════════════════════════════╗"
     echo "║                                                                ║"
     echo "║     Lunigy AI Autonomous System - Bootstrap Installer         ║"
+    echo "║                    Version $BOOTSTRAP_VERSION                           ║"
     echo "║                                                                ║"
     echo "║  🤖 7 Layers of Intelligence for Building Products            ║"
     echo "║  🎯 Dashboard included for real-time visibility               ║"
@@ -169,7 +172,7 @@ main() {
     echo -e "${BOLD}What will be installed:${NC}"
     echo "  ✅ Autonomous system (7 layers of intelligence)"
     echo "  ✅ Claude Code hooks (9 hooks)"
-    echo "  ✅ Subagents (Discovery, Engineering, Launch)"
+    echo "  ✅ Specialized agents (19 agents + 30 commands + 13 skills)"
     echo "  ✅ Health dashboard (http://localhost:3000)"
     echo "  ✅ RAG system (optional but recommended)"
     echo "  ✅ Knowledge base (regulations, learnings)"
