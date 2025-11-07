@@ -36,7 +36,7 @@ readonly BOLD='\033[1m'
 readonly NC='\033[0m' # No Color
 
 # Configuration
-SCRIPT_VERSION="1.0.0"
+SCRIPT_VERSION="2.0.0"
 CONFIG_TYPE="full"
 REPO_URL=""
 BRANCH_NAME="main"
@@ -118,7 +118,7 @@ OPTIONS:
 
 EXAMPLES:
     # Interactive installation (recommended - includes dashboard)
-    bash install.sh --repo-url=git@github.com:lunigy/ai-autonomous-system-system.git
+    bash install.sh --repo-url=git@github.com:lunigy/ai-autonomous-system.git
 
     # Full installation with RAG and dashboard auto-start
     bash install.sh --repo-url=<url> --config=full --rag-hooks --rag-index
@@ -791,6 +791,53 @@ create_claude_md() {
     fi
 }
 
+install_user_guide() {
+    step "Installing User Guide Website"
+
+    # Determine source path
+    local source_path
+    if [ -d ".autonomous-system/.autonomous-system" ]; then
+        source_path=".autonomous-system/.autonomous-system"
+    else
+        source_path=".autonomous-system"
+    fi
+
+    local website_source="$source_path/docs/user-guide-website"
+    local website_dest=".autonomous-system/docs/user-guide"
+
+    # Check if source exists
+    if [ ! -d "$website_source" ]; then
+        warning "User guide website not found at: $website_source"
+        info "Skipping user guide installation"
+        return 0
+    fi
+
+    # Create destination directory
+    if [ ! -d "$website_dest" ]; then
+        if [ "$DRY_RUN" = true ]; then
+            info "[DRY RUN] Would create directory: $website_dest"
+        else
+            mkdir -p "$website_dest"
+            CHANGES_MADE+=("created_dir:$website_dest")
+        fi
+    fi
+
+    # Copy website files
+    if [ "$DRY_RUN" = true ]; then
+        info "[DRY RUN] Would copy user guide website to: $website_dest"
+    else
+        if cp -r "$website_source/"* "$website_dest/" 2>&1; then
+            CHANGES_MADE+=("installed_user_guide:$website_dest")
+            success "User guide website installed to: $website_dest"
+            info "Access locally: file://$(pwd)/$website_dest/index.html"
+            info "Or via HTTP server: python3 -m http.server --directory $website_dest 8080"
+        else
+            error "Failed to copy user guide website"
+            warning "You can copy manually: cp -r $website_source $website_dest"
+        fi
+    fi
+}
+
 verify_installation() {
     step "Verifying Installation"
 
@@ -1346,6 +1393,7 @@ main() {
     create_settings_json
     create_symlinks
     create_claude_md
+    install_user_guide
     install_rag_dependencies
     setup_rag_hooks
     run_initial_rag_index
